@@ -1,0 +1,126 @@
+name: Release Ruby gem
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag; must equal v + gem version
+        required: true
+        type: string
+      publish_rubygems:
+        description: Also publish this verified artifact to RubyGems
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  verify-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
+        with:
+          ruby-version: "3.1"
+          bundler-cache: true
+      - name: Require exact release tag commit on main
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          git fetch --force origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor HEAD origin/main
+      - name: Verify release tag matches gem version
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: ruby scripts/check_release_tag.rb "$RELEASE_TAG"
+      - run: ruby scripts/check_contract.rb
+      - run: bundle exec rake test
+      - run: bundle exec rubocop
+      - run: bundle exec bundler-audit check --update
+      - name: Build gem and checksum
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          mkdir -p dist
+          release_version="${RELEASE_TAG#v}"
+          gem build viapost.gemspec --output "dist/viapost-${release_version}.gem"
+          (cd dist && sha256sum *.gem > SHA256SUMS)
+          chmod a-w dist/*
+      - name: Test gem in an isolated consumer
+        run: |
+          consumer="$(mktemp -d)"
+          GEM_HOME="$consumer/gems" GEM_PATH="$consumer/gems" gem install --local --ignore-dependencies dist/*.gem
+          GEM_HOME="$consumer/gems" GEM_PATH="$consumer/gems" ruby -rviapost -e 'abort unless ViaPost::VERSION == "0.1.0"'
+          cd dist && sha256sum -c SHA256SUMS
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ruby-gem
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 1
+
+  attach-to-github-release:
+    needs: verify-and-build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ruby-gem
+          path: dist
+      - name: Attach gem and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: gh release upload "$RELEASE_TAG" dist/*
+
+  attest-build-provenance:
+    needs: verify-and-build
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ruby-gem
+          path: dist
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*.gem
+
+  publish-to-rubygems:
+    needs:
+      - verify-and-build
+      - attach-to-github-release
+      - attest-build-provenance
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_rubygems == true
+    runs-on: ubuntu-latest
+    environment: rubygems
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ruby-gem
+          path: dist
+      - name: Publish manually approved artifact
+        env:
+          GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
+        run: gem push dist/*.gem

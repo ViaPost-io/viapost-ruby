@@ -1,0 +1,32 @@
+AllCops:
+  NewCops: enable
+  TargetRubyVersion: 3.1
+  SuggestExtensions: false
+  Exclude:
+    - vendor/**/*
+
+Layout/LineLength:
+  Max: 120
+
+Metrics/MethodLength:
+  Max: 25
+
+Metrics/AbcSize:
+  Max: 25
+  Exclude:
+    - test/**/*
+
+Metrics/ClassLength:
+  Max: 150
+  Exclude:
+    - test/**/*
+
+Metrics/CyclomaticComplexity:
+  Max: 10
+
+Metrics/ParameterLists:
+  Max: 8
+  CountKeywordArgs: false
+
+Style/Documentation:
+  Enabled: false

@@ -1,0 +1,7 @@
+/.bundle/
+/.ruby-lsp/
+/coverage/
+/pkg/
+/vendor/bundle/
+*.gem
+
