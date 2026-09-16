@@ -11,8 +11,13 @@ class FakeAdapter
     @calls = []
   end
 
-  def perform(uri:, request:, max_response_bytes:)
-    @calls << { uri: uri, request: request, max_response_bytes: max_response_bytes }
+  def perform(uri:, request:, max_response_bytes:, max_error_response_bytes: nil)
+    @calls << {
+      uri: uri,
+      request: request,
+      max_response_bytes: max_response_bytes,
+      max_error_response_bytes: max_error_response_bytes
+    }
     response = @responses.shift
     raise response if response.is_a?(Exception)
 

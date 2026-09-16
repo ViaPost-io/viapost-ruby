@@ -7,12 +7,15 @@ module ViaPost
   class Configuration
     DEFAULT_BASE_URL = 'https://api.viapost.io'
     DEFAULT_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+    DEFAULT_MAX_RAW_RESPONSE_BYTES = 40 * 1024 * 1024
+    MAX_RAW_RESPONSE_BYTES = 128 * 1024 * 1024
 
     attr_reader :api_key, :base_uri, :timeout, :open_timeout, :read_timeout, :write_timeout,
-                :max_response_bytes, :max_retries
+                :max_response_bytes, :max_raw_response_bytes, :max_retries
 
     def initialize(api_key:, base_url: DEFAULT_BASE_URL, timeout: 60, open_timeout: 5, read_timeout: 30,
-                   write_timeout: 30, max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES, max_retries: 2)
+                   write_timeout: 30, max_response_bytes: DEFAULT_MAX_RESPONSE_BYTES,
+                   max_raw_response_bytes: DEFAULT_MAX_RAW_RESPONSE_BYTES, max_retries: 2)
       @api_key = validate_api_key(api_key)
       @base_uri = validate_base_url(base_url)
       @timeout = positive_number(timeout, 'timeout')
@@ -20,11 +23,20 @@ module ViaPost
       @read_timeout = positive_number(read_timeout, 'read_timeout')
       @write_timeout = positive_number(write_timeout, 'write_timeout')
       @max_response_bytes = bounded_response_size(max_response_bytes)
+      @max_raw_response_bytes = bounded_raw_response_size(max_raw_response_bytes)
       @max_retries = bounded_retries(max_retries)
     end
 
     def inspect
       "#<#{self.class} api_key=[REDACTED] base_url=#{base_uri}>"
+    end
+
+    def marshal_dump
+      raise TypeError, 'ViaPost::Configuration contains credentials and cannot be serialized'
+    end
+
+    def encode_with(_coder)
+      raise TypeError, 'ViaPost::Configuration contains credentials and cannot be serialized'
     end
 
     private
@@ -87,6 +99,13 @@ module ViaPost
       return size if size <= DEFAULT_MAX_RESPONSE_BYTES
 
       raise ConfigurationError, "max_response_bytes cannot exceed #{DEFAULT_MAX_RESPONSE_BYTES}"
+    end
+
+    def bounded_raw_response_size(value)
+      size = positive_integer(value, 'max_raw_response_bytes')
+      return size if size <= MAX_RAW_RESPONSE_BYTES
+
+      raise ConfigurationError, "max_raw_response_bytes cannot exceed #{MAX_RAW_RESPONSE_BYTES}"
     end
 
     def bounded_retries(value)

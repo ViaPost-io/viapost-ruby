@@ -57,15 +57,18 @@ jobs:
         run: |
           mkdir -p dist
           release_version="${RELEASE_TAG#v}"
+          source_sha="$(git rev-parse HEAD)"
+          git rev-parse HEAD > dist/SOURCE_SHA
           SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" \
+            VIAPOST_SOURCE_SHA="$source_sha" \
             gem build viapost.gemspec --output "dist/viapost-${release_version}.gem"
-          (cd dist && sha256sum -- ./*.gem > SHA256SUMS)
+          (cd dist && sha256sum -- ./*.gem SOURCE_SHA > SHA256SUMS)
           chmod a-w -- dist/*
       - name: Test gem in an isolated consumer
         run: |
           consumer="$(mktemp -d)"
           GEM_HOME="$consumer/gems" GEM_PATH="$consumer/gems" gem install --local --ignore-dependencies dist/*.gem
-          GEM_HOME="$consumer/gems" GEM_PATH="$consumer/gems" ruby -rviapost -e 'abort unless ViaPost::VERSION == "0.1.0"'
+          GEM_HOME="$consumer/gems" GEM_PATH="$consumer/gems" ruby -rviapost -e 'abort unless ViaPost::VERSION == "0.2.0"'
           cd dist && sha256sum -c SHA256SUMS
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -96,6 +99,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       actions: read
+      attestations: read
       contents: write
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -108,6 +112,17 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
         run: |
+          SOURCE_SHA="$(cat dist/SOURCE_SHA)"
+          case "$SOURCE_SHA" in (*[!0-9a-f]*|'') exit 1;; esac
+          test "${#SOURCE_SHA}" = 40
+          test "$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)" = "$SOURCE_SHA"
+          (cd dist && sha256sum -c SHA256SUMS)
+          for artifact in dist/*.gem; do
+            gh attestation verify "$artifact" \
+              --repo "$GH_REPO" \
+              --source-digest "$SOURCE_SHA" \
+              --signer-workflow "$GH_REPO/.github/workflows/release.yml"
+          done
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             release_is_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)"
             published="$(mktemp -d)"
@@ -136,6 +151,7 @@ jobs:
     environment: rubygems
     permissions:
       actions: read
+      attestations: read
       contents: read
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -145,4 +161,19 @@ jobs:
       - name: Publish manually approved artifact
         env:
           GEM_HOST_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
-        run: gem push dist/*.gem
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          SOURCE_SHA="$(cat dist/SOURCE_SHA)"
+          case "$SOURCE_SHA" in (*[!0-9a-f]*|'') exit 1;; esac
+          test "${#SOURCE_SHA}" = 40
+          test "$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)" = "$SOURCE_SHA"
+          (cd dist && sha256sum -c SHA256SUMS)
+          for artifact in dist/*.gem; do
+            gh attestation verify "$artifact" \
+              --repo "$GH_REPO" \
+              --source-digest "$SOURCE_SHA" \
+              --signer-workflow "$GH_REPO/.github/workflows/release.yml"
+          done
+          gem push dist/*.gem

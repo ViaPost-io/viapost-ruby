@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative 'test_helper'
+require 'yaml'
 
 class ConfigurationTest < Minitest::Test
   def test_rejects_blank_api_key
@@ -33,6 +34,16 @@ class ConfigurationTest < Minitest::Test
     assert_raises(ViaPost::ConfigurationError) { ViaPost::Client.new(api_key: 'secret', max_retries: 6) }
   end
 
+  def test_configures_a_separate_bounded_raw_response_limit
+    configured = ViaPost::Client.new(api_key: 'secret', max_raw_response_bytes: 64 * 1024 * 1024)
+
+    assert_equal 8 * 1024 * 1024, configured.configuration.max_response_bytes
+    assert_equal 64 * 1024 * 1024, configured.configuration.max_raw_response_bytes
+    assert_raises(ViaPost::ConfigurationError) do
+      ViaPost::Client.new(api_key: 'secret', max_raw_response_bytes: (128 * 1024 * 1024) + 1)
+    end
+  end
+
   def test_inspect_redacts_api_key
     key = +'vp_live_super_secret'
     configured = ViaPost::Client.new(api_key: key)
@@ -40,5 +51,12 @@ class ConfigurationTest < Minitest::Test
 
     refute_includes configured.inspect, 'vp_live_super_secret'
     assert_raises(FrozenError) { configured.configuration.base_uri.scheme = 'http' }
+  end
+
+  def test_configuration_with_credentials_cannot_be_serialized
+    configuration = ViaPost::Configuration.new(api_key: 'vp_live_never_serialize')
+
+    assert_raises(TypeError) { Marshal.dump(configuration) }
+    assert_raises(TypeError) { YAML.dump(configuration) }
   end
 end

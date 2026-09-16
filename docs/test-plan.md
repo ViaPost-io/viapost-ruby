@@ -1,4 +1,4 @@
-# Plano de testes — beta v0.1.0
+# Plano de testes — beta v0.2.0
 
 Os comportamentos abaixo orientam os ciclos Red → Green → Refactor do SDK:
 
@@ -16,4 +16,12 @@ Os comportamentos abaixo orientam os ciclos Red → Green → Refactor do SDK:
 12. o OpenAPI vendorizado mantém o SHA esperado e as rotas públicas do beta;
 13. tag de release equivale exatamente à versão e aponta para commit contido em `main`;
 14. o `.gem` instala e carrega em um consumidor isolado.
-
+15. downloads RFC 5322 e exportações CSV preservam bytes sem decodificação JSON;
+16. importações CSV usam `text/csv`, respeitam 2 MiB e nunca são repetidas;
+17. operações de webhook exigem versões e chaves idempotentes válidas;
+18. secrets retornados por criação ou rotação não aparecem em inspect/JSON;
+19. o monitor compara semanticamente a cópia local com a URL pública oficial.
+20. respostas JSON e erros mantêm 8 MiB enquanto RFC 5322/CSV usam limite bruto independente;
+21. o limite bruto padrão é 40 MiB, é configurável e rejeita valores acima de 128 MiB;
+22. cabeçalhos extras não substituem autenticação, host, user-agent, compressão ou hop-by-hop;
+23. webhooks exigem HTTPS público e o downloader só segue redirects HTTPS na mesma origem.
