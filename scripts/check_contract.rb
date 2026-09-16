@@ -6,8 +6,8 @@ require 'net/http'
 require 'uri'
 require 'yaml'
 
-EXPECTED_SHA = 'd1f223342ad1ca326ba716af6e508c78594e1b108958cce2ec4a1efd31a9773a'
-SOURCE_COMMIT = '1daaf57b8c8bb7481b7c8633a68705428de1f90a'
+EXPECTED_SHA = 'cb61b81b3276679426504eae4161e610eb5520aca2cd71cd267ed62628c518e4'
+SOURCE_COMMIT = '891adebbe79a26178fb780ec986172c890a5e261'
 CONTRACT_URL = URI('https://docs.viapost.io/openapi/public.yaml')
 LOCAL_CONTRACT = File.expand_path('../openapi/public.yaml', __dir__)
 MAX_BYTES = 8 * 1024 * 1024
