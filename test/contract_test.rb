@@ -7,7 +7,7 @@ class ContractTest < Minitest::Test
   CONTRACT = File.expand_path('../openapi/public.yaml', __dir__)
 
   def test_vendored_contract_sha
-    assert_equal 'd1f223342ad1ca326ba716af6e508c78594e1b108958cce2ec4a1efd31a9773a', Digest::SHA256.file(CONTRACT).hexdigest
+    assert_equal 'cb61b81b3276679426504eae4161e610eb5520aca2cd71cd267ed62628c518e4', Digest::SHA256.file(CONTRACT).hexdigest
   end
 
   def test_vendored_contract_contains_beta_routes

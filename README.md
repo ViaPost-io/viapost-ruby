@@ -108,8 +108,8 @@ or 5xx responses; mutations are never retried.
 ## Contract and support
 
 This beta is generated against ViaPost OpenAPI 3.1 contract SHA
-`d1f223342ad1ca326ba716af6e508c78594e1b108958cce2ec4a1efd31a9773a` from source commit
-`1daaf57b8c8bb7481b7c8633a68705428de1f90a`.
+`cb61b81b3276679426504eae4161e610eb5520aca2cd71cd267ed62628c518e4` from source commit
+`891adebbe79a26178fb780ec986172c890a5e261`.
 
 - [API documentation](https://docs.viapost.io)
 - [Security policy](SECURITY.md)

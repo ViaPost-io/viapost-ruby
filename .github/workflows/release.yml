@@ -1,8 +1,8 @@
 name: Release Ruby gem
 
 on:
-  release:
-    types: [published]
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
         with:
-          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          ref: ${{ github.event_name == 'push' && github.sha || inputs.tag }}
           fetch-depth: 0
           persist-credentials: false
       - uses: ruby/setup-ruby@95ef2b042f9d7a56d8268cba8559e2842e2ad01b # v1.321.0
@@ -33,15 +33,19 @@ jobs:
           bundler-cache: true
       - name: Require exact release tag commit on main
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+          EVENT_SHA: ${{ github.event_name == 'push' && github.sha || '' }}
         run: |
           git fetch --force origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
           test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")"
+          if [ -n "$EVENT_SHA" ]; then
+            test "$(git rev-parse HEAD)" = "$EVENT_SHA"
+          fi
           git fetch --no-tags origin main
           git merge-base --is-ancestor HEAD origin/main
       - name: Verify release tag matches gem version
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
         run: ruby scripts/check_release_tag.rb "$RELEASE_TAG"
       - run: ruby scripts/check_contract.rb
       - run: bundle exec rake test
@@ -49,13 +53,14 @@ jobs:
       - run: bundle exec bundler-audit check --update
       - name: Build gem and checksum
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
         run: |
           mkdir -p dist
           release_version="${RELEASE_TAG#v}"
-          gem build viapost.gemspec --output "dist/viapost-${release_version}.gem"
-          (cd dist && sha256sum *.gem > SHA256SUMS)
-          chmod a-w dist/*
+          SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" \
+            gem build viapost.gemspec --output "dist/viapost-${release_version}.gem"
+          (cd dist && sha256sum -- ./*.gem > SHA256SUMS)
+          chmod a-w -- dist/*
       - name: Test gem in an isolated consumer
         run: |
           consumer="$(mktemp -d)"
@@ -68,24 +73,6 @@ jobs:
           path: dist/*
           if-no-files-found: error
           retention-days: 1
-
-  attach-to-github-release:
-    needs: verify-and-build
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: write
-    steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ruby-gem
-          path: dist
-      - name: Attach gem and checksum
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
-        run: gh release upload "$RELEASE_TAG" dist/*
 
   attest-build-provenance:
     needs: verify-and-build
@@ -102,13 +89,48 @@ jobs:
           path: dist
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: dist/*.gem
+          subject-path: dist/*
+
+  publish-github-release:
+    needs: [verify-and-build, attest-build-provenance]
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ruby-gem
+          path: dist
+      - name: Publish verified gem and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            release_is_draft="$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)"
+            published="$(mktemp -d)"
+            gh release download "$RELEASE_TAG" --dir "$published"
+            diff -q "$published/SHA256SUMS" dist/SHA256SUMS
+            (cd "$published" && sha256sum -c SHA256SUMS)
+            (cd dist && sha256sum -c SHA256SUMS)
+            test "$(find "$published" -maxdepth 1 -type f -printf '%f\n' | sort)" = \
+              "$(find dist -maxdepth 1 -type f -printf '%f\n' | sort)"
+            for artifact in dist/*; do
+              cmp --silent "$artifact" "$published/$(basename "$artifact")"
+            done
+            if [ "$release_is_draft" = true ]; then
+              gh release edit "$RELEASE_TAG" --draft=false
+            fi
+          else
+            gh release create "$RELEASE_TAG" dist/* --draft --verify-tag --generate-notes --title "$RELEASE_TAG"
+            gh release edit "$RELEASE_TAG" --draft=false
+          fi
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft)" = false
 
   publish-to-rubygems:
-    needs:
-      - verify-and-build
-      - attach-to-github-release
-      - attest-build-provenance
+    needs: publish-github-release
     if: github.event_name == 'workflow_dispatch' && inputs.publish_rubygems == true
     runs-on: ubuntu-latest
     environment: rubygems
