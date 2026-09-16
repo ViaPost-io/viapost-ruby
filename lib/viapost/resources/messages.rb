@@ -15,6 +15,15 @@ module ViaPost
         request(:get, "/v1/messages/#{escape(id)}/events")
       end
 
+      def raw(id)
+        request(
+          :get,
+          "/v1/messages/#{escape(id)}/raw",
+          accept: 'message/rfc822',
+          response_format: :binary
+        )
+      end
+
       def engagement(days: nil)
         request(:get, '/v1/messages/engagement', params: { days: days })
       end

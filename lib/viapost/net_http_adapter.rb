@@ -14,7 +14,7 @@ module ViaPost
       @http_factory = http_factory || ->(uri) { Net::HTTP.new(uri.host, uri.port) }
     end
 
-    def perform(uri:, request:, max_response_bytes:)
+    def perform(uri:, request:, max_response_bytes:, max_error_response_bytes:)
       http = @http_factory.call(uri)
       configure(http, uri)
       response = nil
@@ -22,10 +22,11 @@ module ViaPost
 
       http.request(request) do |raw_response|
         response = raw_response
+        response_limit = raw_response.code.to_i.between?(200, 299) ? max_response_bytes : max_error_response_bytes
         raw_response.read_body do |chunk|
-          if body.bytesize + chunk.bytesize > max_response_bytes
+          if body.bytesize + chunk.bytesize > response_limit
             raise ResponseTooLargeError,
-                  "ViaPost response exceeded #{max_response_bytes} bytes"
+                  "ViaPost response exceeded #{response_limit} bytes"
           end
 
           body << chunk

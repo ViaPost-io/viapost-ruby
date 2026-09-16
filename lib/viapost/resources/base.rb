@@ -45,6 +45,17 @@ module ViaPost
 
         raise ValidationError, "#{first_name} and #{second_name} must be provided together"
       end
+
+      def validate_integer_range(value, name, min:, max: nil)
+        valid = value.is_a?(Integer) && value >= min && (!max || value <= max)
+        range = max ? "between #{min} and #{max}" : "at least #{min}"
+        raise ValidationError, "#{name} must be #{range}" unless valid
+      end
+
+      def validate_idempotency_key(value)
+        valid = value.is_a?(String) && value.bytesize.between?(1, 255) && value.match?(/\A[!-~]+\z/)
+        raise ValidationError, 'idempotency_key must be 1-255 visible ASCII bytes' unless valid
+      end
     end
   end
 end

@@ -15,7 +15,14 @@ module ViaPost
       patch: Net::HTTP::Patch,
       delete: Net::HTTP::Delete
     }.freeze
-    attr_reader :configuration, :send_email, :messages, :domains, :templates, :webhooks, :automations, :usage
+    RESPONSE_FORMATS = %i[json binary].freeze
+    PROTECTED_HEADERS = %w[
+      accept accept-encoding authorization connection content-length content-type cookie host keep-alive
+      proxy-authenticate proxy-authorization te trailer transfer-encoding upgrade user-agent
+    ].freeze
+
+    attr_reader :configuration, :send_email, :messages, :inbound_messages, :suppressions, :domains, :templates,
+                :webhooks, :automations, :usage
 
     def initialize(api_key:, adapter: nil, sleeper: Kernel.method(:sleep), **options)
       @configuration = Configuration.new(api_key: api_key, **options)
@@ -28,17 +35,23 @@ module ViaPost
       initialize_resources
     end
 
-    def request(method, path, params: {}, body: nil, headers: {})
+    def request(method, path, params: {}, body: nil, headers: {}, content_type: 'application/json',
+                accept: 'application/json', response_format: :json)
       method = method.to_sym
       request_class = REQUEST_CLASSES.fetch(method) { raise ArgumentError, "unsupported HTTP method: #{method}" }
+      unless RESPONSE_FORMATS.include?(response_format)
+        raise ArgumentError, "unsupported response format: #{response_format}"
+      end
+
       Timeout.timeout(@configuration.timeout, Timeout::Error) do
         attempts = 0
 
         loop do
           response = @adapter.perform(
             uri: build_uri(path, params),
-            request: build_request(request_class, path, params, body, headers),
-            max_response_bytes: @configuration.max_response_bytes
+            request: build_request(request_class, path, params, body, headers, content_type, accept),
+            max_response_bytes: response_limit(response_format),
+            max_error_response_bytes: @configuration.max_response_bytes
           )
           if retryable?(method, response.status) && attempts < @configuration.max_retries
             @sleeper.call(retry_delay(response, attempts))
@@ -46,7 +59,7 @@ module ViaPost
             next
           end
 
-          return decode(response)
+          return decode(response, response_format)
         end
       end
     rescue Timeout::Error
@@ -66,6 +79,8 @@ module ViaPost
     def initialize_resources
       @send_email = Resources::Send.new(self)
       @messages = Resources::Messages.new(self)
+      @inbound_messages = Resources::InboundMessages.new(self)
+      @suppressions = Resources::Suppressions.new(self)
       @domains = Resources::Domains.new(self)
       @templates = Resources::Templates.new(self)
       @webhooks = Resources::Webhooks.new(self)
@@ -81,20 +96,45 @@ module ViaPost
       uri
     end
 
-    def build_request(request_class, path, params, body, extra_headers)
+    def build_request(request_class, path, params, body, extra_headers, content_type, accept)
       uri = build_uri(path, params)
-      headers = extra_headers.reject { |key, _value| %w[authorization cookie].include?(key.to_s.downcase) }.merge(
-        'Authorization' => "Bearer #{@configuration.api_key}",
-        'Accept' => 'application/json',
-        'Accept-Encoding' => 'identity',
-        'User-Agent' => "viapost-ruby/#{VERSION}"
-      )
-      request = request_class.new(uri.request_uri, headers)
-      unless body.nil?
-        request['Content-Type'] = 'application/json'
-        request.body = JSON.generate(body)
-      end
+      validate_header_value(accept, 'accept')
+      validate_header_value(content_type, 'content_type') unless body.nil?
+      request = request_class.new(uri.request_uri, safe_extra_headers(extra_headers))
+      set_protected_headers(request, accept)
+      set_body(request, body, content_type)
       request
+    end
+
+    def safe_extra_headers(extra_headers)
+      connection_tokens = extra_headers.filter_map do |key, value|
+        value.to_s.split(',').map { |token| token.strip.downcase } if key.to_s.downcase == 'connection'
+      end.flatten
+      blocked_headers = PROTECTED_HEADERS + connection_tokens
+      extra_headers.reject { |key, _value| blocked_headers.include?(key.to_s.downcase) }
+    end
+
+    def set_protected_headers(request, accept)
+      request['Authorization'] = "Bearer #{@configuration.api_key}"
+      request['Accept'] = accept
+      request['Accept-Encoding'] = 'identity'
+      request['User-Agent'] = "viapost-ruby/#{VERSION}"
+    end
+
+    def set_body(request, body, content_type)
+      return if body.nil?
+
+      request['Content-Type'] = content_type
+      request.body = content_type == 'application/json' ? JSON.generate(body) : body.to_s
+    end
+
+    def validate_header_value(value, name)
+      valid = value.is_a?(String) && !value.empty? && !value.match?(/[[:cntrl:]]/)
+      raise ArgumentError, "#{name} must be a non-empty header value without control characters" unless valid
+    end
+
+    def response_limit(response_format)
+      response_format == :binary ? @configuration.max_raw_response_bytes : @configuration.max_response_bytes
     end
 
     def retryable?(method, status)
@@ -118,10 +158,14 @@ module ViaPost
       [0.25 * (2**attempts), 2.0].min
     end
 
-    def decode(response)
+    def decode(response, response_format)
       return nil if [204, 205].include?(response.status)
 
-      return parse_json(response.body) if response.status.between?(200, 299)
+      if response.status.between?(200, 299)
+        return response.body.dup.force_encoding(Encoding::BINARY) if response_format == :binary
+
+        return parse_json(response.body)
+      end
 
       raise_api_error(response, parse_error_json(response.body))
     end
