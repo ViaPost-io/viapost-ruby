@@ -8,8 +8,8 @@ require 'uri'
 require 'yaml'
 
 module ContractCheck
-  EXPECTED_SHA = 'f1b1fc0f198a2b0b36f0e893515dad191d6bb7d139fcf1e942c036bfa2f5169b'
-  SOURCE_COMMIT = '891adebbe79a26178fb780ec986172c890a5e261'
+  EXPECTED_SHA = 'c5d5ae1d85e61b4e14e09351b14146465ce357075d2ed5fe4e034f6ff6693dc1'
+  SOURCE_COMMIT = 'unavailable: published contract does not expose a source commit'
   CONTRACT_URL = URI(ENV.fetch('OPENAPI_SOURCE_URL', 'https://docs.viapost.io/openapi/public.yaml'))
   LOCAL_CONTRACT = File.expand_path('../openapi/public.yaml', __dir__)
   MAX_BYTES = 8 * 1024 * 1024
