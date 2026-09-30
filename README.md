@@ -141,8 +141,8 @@ metadata; destination response bodies, endpoint URLs, and credentials are not re
 ## Contract and support
 
 This beta is generated against ViaPost OpenAPI 3.1 contract SHA
-`c5d5ae1d85e61b4e14e09351b14146465ce357075d2ed5fe4e034f6ff6693dc1` from canonical source commit
-`207702c8309db84354ae6a5f7a9f3042e21050a0`.
+`7c931b5a4a2a602d3c42341f2a70af9c49378600894b31adebfd333469b9e183` from canonical source commit
+`2c2eee4c5250b6205338965405a46eb02db4ce2f`.
 
 The anonymous public status subscription endpoints are intentionally not exposed through this
 Bearer-authenticated client. Keeping them separate prevents an API key from being sent to

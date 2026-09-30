@@ -6,6 +6,8 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/en/1.1.
 
 ### Fixed
 
+- Synchronize the vendored OpenAPI snapshot with the current public contract, including tracking
+  domain lifecycle routes, deliverability metrics, and custom event send semantics.
 - Keep JSON and error responses bounded at 8 MiB while allowing RFC 5322 and CSV downloads to use
   an independently configurable 40 MiB limit with a defensive 128 MiB ceiling.
 - Prevent extra headers from replacing authorization, cookies, host, user-agent, compression,
