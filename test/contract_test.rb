@@ -9,7 +9,7 @@ class ContractTest < Minitest::Test
   CONTRACT = File.expand_path('../openapi/public.yaml', __dir__)
 
   def test_vendored_contract_sha
-    expected = '7c931b5a4a2a602d3c42341f2a70af9c49378600894b31adebfd333469b9e183'
+    expected = 'd42e0c5d732780b743aead543be32d6b474631dec4fd0c1c8838e1416216bc4e'
 
     assert_equal expected, Digest::SHA256.file(CONTRACT).hexdigest
   end
@@ -58,6 +58,29 @@ class ContractTest < Minitest::Test
     )
   end
 
+  def test_public_status_tracking_verification_timestamp_is_conditional
+    schema = contract_document.dig('components', 'schemas', 'PublicStatusComponent')
+
+    refute_includes schema.fetch('required'), 'verified_at'
+    assert_equal 'date-time', schema.dig('properties', 'verified_at', 'format')
+    assert_equal 'Z$', schema.dig('properties', 'verified_at', 'pattern')
+    assert_equal 'tracking', schema.dig('allOf', 0, 'if', 'properties', 'id', 'const')
+    assert_equal 'unknown', schema.dig('allOf', 1, 'if', 'properties', 'status', 'const')
+  end
+
+  def test_message_timeline_contract_exposes_inbound_opt_in
+    operation = contract_document.dig('paths', '/v1/messages/events', 'get')
+    include_parameter = operation.fetch('parameters').find { |parameter| parameter['name'] == 'include' }
+
+    assert_equal ['inbound'], include_parameter.dig('schema', 'enum')
+    assert_equal 'inbound:read', operation.fetch('x-viapost-additional-scope-when-include-inbound')
+    response_variants = operation.dig('responses', '200', 'content', 'application/json', 'schema', 'anyOf')
+    assert_equal(
+      ['#/components/schemas/MessageTimelinePage', '#/components/schemas/MessageTimelineOptInPage'],
+      response_variants.map { |item| item.fetch('$ref') }
+    )
+  end
+
   def test_custom_event_send_contract_supports_idempotency_and_exactly_one_contact_identifier
     operation = contract_document.dig('paths', '/v1/events/send', 'post')
     idempotency = operation.fetch('parameters').find { |parameter| parameter['name'] == 'Idempotency-Key' }
@@ -84,7 +107,7 @@ class ContractTest < Minitest::Test
 
     assert_equal 'https://docs.viapost.io/openapi/public.yaml', metadata.fetch('url')
     assert_equal Digest::SHA256.file(CONTRACT).hexdigest, metadata.fetch('sha256')
-    assert_equal '2c2eee4c5250b6205338965405a46eb02db4ce2f', metadata.fetch('source_commit')
+    assert_equal '866e00f847772e48dfa4c8d843a5b11750aaf4a4', metadata.fetch('source_commit')
   end
 
   private
