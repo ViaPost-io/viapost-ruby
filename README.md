@@ -141,12 +141,15 @@ metadata; destination response bodies, endpoint URLs, and credentials are not re
 ## Contract and support
 
 This beta is generated against ViaPost OpenAPI 3.1 contract SHA
-`d42e0c5d732780b743aead543be32d6b474631dec4fd0c1c8838e1416216bc4e` from canonical source commit
-`866e00f847772e48dfa4c8d843a5b11750aaf4a4`.
+`96f2fa883334ff15400f51f43bee917e690030e8f3e31b1d8dcdcca2782ab77b` from canonical source commit
+`b26db96bca4586b42bd6e2d7741e29bb12f411b1`.
 
 The anonymous public status subscription endpoints are intentionally not exposed through this
 Bearer-authenticated client. Keeping them separate prevents an API key from being sent to
 `status.viapost.io`; applications should call that public origin without ViaPost authorization.
+
+The SaaS onboarding recipe PATCH is session-cookie and CSRF protected, so it is also intentionally
+absent from this API-key client.
 
 - [API documentation](https://docs.viapost.io)
 - [Security policy](SECURITY.md)
