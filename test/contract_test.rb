@@ -9,7 +9,7 @@ class ContractTest < Minitest::Test
   CONTRACT = File.expand_path('../openapi/public.yaml', __dir__)
 
   def test_vendored_contract_sha
-    expected = 'd42e0c5d732780b743aead543be32d6b474631dec4fd0c1c8838e1416216bc4e'
+    expected = '96f2fa883334ff15400f51f43bee917e690030e8f3e31b1d8dcdcca2782ab77b'
 
     assert_equal expected, Digest::SHA256.file(CONTRACT).hexdigest
   end
@@ -102,12 +102,27 @@ class ContractTest < Minitest::Test
     assert_equal '^[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z0-9_-]+)*$', schema.dig('properties', 'event', 'pattern')
   end
 
+  def test_saas_onboarding_recipe_is_session_only_and_not_exposed_by_api_key_client
+    operation = contract_document.dig('paths', '/v1/automations/{id}/recipes/saas-onboarding', 'patch')
+
+    assert_equal [{ 'sessionCookie' => [] }], operation.fetch('security')
+    assert_equal 'automations:write', operation.fetch('x-viapost-scope')
+    assert_equal '#/components/parameters/RequiredCsrfHeader', operation.fetch('parameters')[1].fetch('$ref')
+    assert_equal 'X-ViaPost-Expected-Tenant-ID', operation.fetch('parameters')[2].fetch('name')
+    assert_equal true, operation.fetch('parameters')[2].fetch('required')
+    assert_equal %w[event_id template_id sender_domain_id],
+                 contract_document.dig('components', 'schemas', 'MaterializeSaasOnboardingRecipeRequest', 'required')
+    assert_equal true, contract_document.dig('components', 'parameters', 'RequiredCsrfHeader', 'required')
+    refute_includes File.read(File.expand_path('../lib/viapost/resources/automations.rb', __dir__)),
+                    '/recipes/saas-onboarding'
+  end
+
   def test_contract_source_metadata_is_complete_and_matches_snapshot
     metadata = JSON.parse(File.read(File.expand_path('../docs/openapi-source.json', __dir__)))
 
     assert_equal 'https://docs.viapost.io/openapi/public.yaml', metadata.fetch('url')
     assert_equal Digest::SHA256.file(CONTRACT).hexdigest, metadata.fetch('sha256')
-    assert_equal '866e00f847772e48dfa4c8d843a5b11750aaf4a4', metadata.fetch('source_commit')
+    assert_equal 'b26db96bca4586b42bd6e2d7741e29bb12f411b1', metadata.fetch('source_commit')
   end
 
   private
