@@ -6,6 +6,7 @@ require 'uri'
 
 module ViaPost
   module Resources
+    # This resource groups endpoint, delivery and security operations for one API surface.
     class Webhooks < Base
       NON_PUBLIC_NETWORKS = %w[
         0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12
@@ -14,34 +15,57 @@ module ViaPost
         ::/96 2001:db8::/32 ff00::/8
       ].map { |network| IPAddr.new(network) }.freeze
 
-      def list = request(:get, '/v1/webhooks')
+      def list(**filters)
+        params = webhook_list_params(filters)
+        limit = params[:limit]
+        sort = params[:sort]
+        validate_integer_range(limit, 'limit', min: 1, max: 100) if limit
+        if sort && !%w[created_at_desc created_at_asc].include?(sort)
+          raise ValidationError, 'sort must be created_at_desc or created_at_asc'
+        end
 
-      def create(url:, event_types:)
-        validate_public_https_url(url)
+        request(
+          :get,
+          '/v1/webhooks',
+          params: params
+        )
+      end
 
-        validate_array(event_types, 'event_types', min: 1)
+      def create(url:, event_types:, name: UNSET, enabled: UNSET, max_attempts: UNSET, description: UNSET)
+        attributes = { name: name, enabled: enabled, max_attempts: max_attempts, description: description,
+                       url: url, event_types: event_types }.reject { |_key, value| value.equal?(UNSET) }
+        validate_webhook_attributes(attributes)
         CreateWebhookResponse.new(
-          request(:post, '/v1/webhooks', body: { url: url, event_types: event_types })
+          request(:post, '/v1/webhooks', body: attributes)
         )
       end
 
       def delete(id) = request(:delete, "/v1/webhooks/#{escape(id)}")
 
-      def update(id, expected_version:, enabled: UNSET, event_types: UNSET, max_attempts: UNSET)
+      def update(id, expected_version:, name: UNSET, url: UNSET, description: UNSET,
+                 enabled: UNSET, event_types: UNSET, max_attempts: UNSET)
         validate_integer_range(expected_version, 'expected_version', min: 1)
-        attributes = webhook_attributes(enabled, event_types, max_attempts)
+        attributes = webhook_attributes(name, url, description, enabled, event_types, max_attempts)
         raise ValidationError, 'at least one webhook field must be provided' if attributes.empty?
 
         validate_webhook_attributes(attributes)
         request(:patch, "/v1/webhooks/#{escape(id)}", body: attributes.merge(expected_version: expected_version))
       end
 
-      def deliveries(id, cursor: nil, limit: nil, status: nil, event_type: nil)
+      def deliveries(id, cursor: nil, limit: nil, status: nil, event_type: nil, response_code: nil, delivery_id: nil)
         validate_integer_range(limit, 'limit', min: 1, max: 100) if limit
+        validate_integer_range(response_code, 'response_code', min: 100, max: 599) if response_code
         request(
           :get,
           "/v1/webhooks/#{escape(id)}/deliveries",
-          params: { cursor: cursor, limit: limit, status: status, event_type: event_type }
+          params: {
+            cursor: cursor,
+            limit: limit,
+            status: status,
+            event_type: event_type,
+            response_code: response_code,
+            delivery_id: delivery_id
+          }
         )
       end
 
@@ -67,6 +91,14 @@ module ViaPost
       end
 
       private
+
+      def webhook_list_params(filters)
+        allowed = %i[q enabled event_type from to limit cursor sort]
+        unknown = filters.keys - allowed
+        raise ValidationError, "unsupported webhook list filters: #{unknown.join(', ')}" unless unknown.empty?
+
+        allowed.to_h { |key| [key, filters[key]] }
+      end
 
       def validate_public_https_url(value)
         uri, hostname = parse_webhook_uri(value)
@@ -108,13 +140,17 @@ module ViaPost
         Addrinfo.getaddrinfo(hostname, port, nil, :STREAM).map { |entry| IPAddr.new(entry.ip_address) }.uniq
       end
 
-      def webhook_attributes(enabled, event_types, max_attempts)
-        { enabled: enabled, event_types: event_types, max_attempts: max_attempts }.reject do |_key, value|
+      def webhook_attributes(name, url, description, enabled, event_types, max_attempts)
+        { name: name, url: url, description: description, enabled: enabled, event_types: event_types,
+          max_attempts: max_attempts }.reject do |_key, value|
           value.equal?(UNSET)
         end
       end
 
       def validate_webhook_attributes(attributes)
+        validate_string(attributes[:name], 'name', max: 100) if attributes.key?(:name)
+        validate_public_https_url(attributes[:url]) if attributes.key?(:url)
+        validate_string(attributes[:description], 'description', max: 200) if attributes.key?(:description)
         validate_event_types(attributes[:event_types]) if attributes.key?(:event_types)
         if attributes.key?(:max_attempts)
           validate_integer_range(attributes[:max_attempts], 'max_attempts', min: 1, max: 20)
@@ -122,6 +158,11 @@ module ViaPost
         return unless attributes.key?(:enabled) && ![true, false].include?(attributes[:enabled])
 
         raise ValidationError, 'enabled must be true or false'
+      end
+
+      def validate_string(value, name, max: nil)
+        valid = value.is_a?(String) && (!max || value.length <= max)
+        raise ValidationError, "#{name} must be a string" unless valid
       end
 
       def validate_event_types(event_types)

@@ -170,7 +170,14 @@ class ResourcesTest < Minitest::Test
   def test_webhook_routes_and_url_validation
     @client.webhooks.list
     Addrinfo.stub(:getaddrinfo, [Addrinfo.ip('93.184.216.34')]) do
-      @client.webhooks.create(url: 'https://example.com/events', event_types: ['delivered'])
+      @client.webhooks.create(
+        url: 'https://example.com/events',
+        event_types: ['delivered'],
+        name: 'Billing events',
+        description: 'Integration endpoint',
+        enabled: true,
+        max_attempts: 8
+      )
     end
     @client.webhooks.delete('id')
 
@@ -201,7 +208,15 @@ class ResourcesTest < Minitest::Test
   end
 
   def test_webhook_operational_routes_and_idempotency
-    @client.webhooks.update('id', expected_version: 2, enabled: true, max_attempts: 5)
+    @client.webhooks.update(
+      'id',
+      expected_version: 2,
+      name: 'Updated billing events',
+      url: 'https://example.com/new-hook',
+      description: '',
+      enabled: true,
+      max_attempts: 5
+    )
     @client.webhooks.deliveries('id', cursor: 'next', limit: 25, status: 'failed', event_type: 'delivered')
     @client.webhooks.delivery('id', 'delivery')
     @client.webhooks.replay('id', 'delivery', idempotency_key: 'replay-1')
@@ -218,6 +233,20 @@ class ResourcesTest < Minitest::Test
     assert_raises(ViaPost::ValidationError) do
       @client.webhooks.replay('id', 'delivery', idempotency_key: "unsafe\r\n")
     end
+  end
+
+  def test_webhook_list_and_delivery_filters_follow_public_contract
+    @client.webhooks.list(
+      q: 'billing', enabled: true, event_type: 'delivered', from: '2026-11-01T00:00:00Z',
+      to: '2026-11-10T00:00:00Z', limit: 10, cursor: 'next', sort: 'created_at_asc'
+    )
+    @client.webhooks.deliveries('id', response_code: 500, delivery_id: 'delivery')
+
+    assert_includes @adapter.calls[0][:uri].query, 'q=billing'
+    assert_includes @adapter.calls[0][:uri].query, 'enabled=true'
+    assert_includes @adapter.calls[0][:uri].query, 'sort=created_at_asc'
+    assert_includes @adapter.calls[1][:uri].query, 'response_code=500'
+    assert_includes @adapter.calls[1][:uri].query, 'delivery_id=delivery'
   end
 
   def test_automation_routes_and_run_pagination

@@ -9,7 +9,7 @@ class ContractTest < Minitest::Test
   CONTRACT = File.expand_path('../openapi/public.yaml', __dir__)
 
   def test_vendored_contract_sha
-    expected = '96f2fa883334ff15400f51f43bee917e690030e8f3e31b1d8dcdcca2782ab77b'
+    expected = 'a58782a840d21315907466baa86734f6bbec8cc5007a6e8ac3fa79c8b94e53d4'
 
     assert_equal expected, Digest::SHA256.file(CONTRACT).hexdigest
   end
@@ -122,7 +122,7 @@ class ContractTest < Minitest::Test
 
     assert_equal 'https://docs.viapost.io/openapi/public.yaml', metadata.fetch('url')
     assert_equal Digest::SHA256.file(CONTRACT).hexdigest, metadata.fetch('sha256')
-    assert_equal 'b26db96bca4586b42bd6e2d7741e29bb12f411b1', metadata.fetch('source_commit')
+    assert_equal 'f0f33d678b5cd2a9db5ca69b881c373afb3833f9', metadata.fetch('source_commit')
   end
 
   private
